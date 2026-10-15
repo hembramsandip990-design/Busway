@@ -1,0 +1,6 @@
+{
+  "name": "BUSWAY — Your Smart Shuttle Partner",
+  "description": "Smart full-stack office commuter shuttle booking platform for Kolkata corridors with real-time seat inventory, tickets, digital wallet, driver manifests, operator fleet compliance, and operations control.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
