@@ -9,6 +9,7 @@ import {
   Play,
   Check,
   Camera,
+  List,
 } from 'lucide-react';
 import { VehicleBadge } from '../components/VehicleBadge';
 import { ScannerView } from '../components/ScannerView';
@@ -18,14 +19,17 @@ export const DriverPortalView: React.FC = () => {
   const [manifest, setManifest] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [scanToken, setScanToken] = useState('');
-  const [scanResult, setScanResult] = useState<{
+  const [activeTab, setActiveTab] = useState<'manifest' | 'scanner'>('scanner');
+  const [tripStarted, setTripStarted] = useState(false);
+  const [gpsSimulating, setGpsSimulating] = useState(true);
+
+  // Recent validation banner
+  const [recentScanResult, setRecentScanResult] = useState<{
     valid: boolean;
     message: string;
     passenger?: string;
+    timestamp?: string;
   } | null>(null);
-  const [tripStarted, setTripStarted] = useState(false);
-  const [gpsSimulating, setGpsSimulating] = useState(true);
-  const [showCameraScanner, setShowCameraScanner] = useState(false);
 
   const tripId = 'trip_bally_0830';
 
@@ -46,23 +50,25 @@ export const DriverPortalView: React.FC = () => {
     loadManifest();
   }, []);
 
-  const handleVerifyToken = async (e: React.FormEvent) => {
+  const handleManualVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!scanToken.trim()) return;
 
     try {
       const res = await api.verifyTicket(scanToken.trim());
-      setScanResult({
+      setRecentScanResult({
         valid: res.valid,
         message: res.message,
         passenger: `${res.passengerName} (Seat ${res.seatNumbers.join(', ')})`,
+        timestamp: new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }),
       });
       setScanToken('');
       loadManifest();
     } catch (err: any) {
-      setScanResult({
+      setRecentScanResult({
         valid: false,
-        message: err.message || 'Ticket verification failed',
+        message: err.message || 'Ticket verification failed on server',
+        timestamp: new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }),
       });
     }
   };
@@ -70,28 +76,42 @@ export const DriverPortalView: React.FC = () => {
   const handleQuickCheckIn = async (qrToken: string) => {
     try {
       const res = await api.verifyTicket(qrToken);
-      setScanResult({
+      setRecentScanResult({
         valid: res.valid,
         message: res.message,
         passenger: `${res.passengerName} (Seat ${res.seatNumbers.join(', ')})`,
+        timestamp: new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }),
       });
       loadManifest();
     } catch (err: any) {
-      setScanResult({
+      setRecentScanResult({
         valid: false,
-        message: err.message || 'Verification failed',
+        message: err.message || 'Verification failed on server',
+        timestamp: new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }),
       });
     }
   };
 
   const handleScannerSuccess = (result: any) => {
-    setScanResult({
+    setRecentScanResult({
       valid: result.valid,
       message: result.message,
       passenger: `${result.passengerName} (Seat ${result.seatNumbers?.join(', ')})`,
+      timestamp: new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }),
     });
     loadManifest();
   };
+
+  const handleScannerFail = (result: any) => {
+    setRecentScanResult({
+      valid: false,
+      message: result.message || 'Boarding ticket rejected',
+      timestamp: new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }),
+    });
+  };
+
+  const boardedCount = manifest?.boardedCount || 0;
+  const totalBooked = manifest?.totalBooked || 0;
 
   return (
     <div className="space-y-4 pb-6">
@@ -121,7 +141,7 @@ export const DriverPortalView: React.FC = () => {
           <div className="text-right">
             <span className="text-slate-400 block text-[10px]">Passenger Load</span>
             <span className="font-bold text-emerald-400">
-              {manifest ? `${manifest.boardedCount}/${manifest.totalBooked} Boarded` : 'Loading...'}
+              {loading ? 'Loading...' : `${boardedCount}/${totalBooked} Boarded`}
             </span>
           </div>
         </div>
@@ -129,6 +149,7 @@ export const DriverPortalView: React.FC = () => {
         {/* Live Trip Actions */}
         <div className="grid grid-cols-2 gap-2 pt-1">
           <button
+            type="button"
             onClick={() => setTripStarted(!tripStarted)}
             className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow ${
               tripStarted
@@ -150,6 +171,7 @@ export const DriverPortalView: React.FC = () => {
           </button>
 
           <button
+            type="button"
             onClick={() => setGpsSimulating(!gpsSimulating)}
             className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-all ${
               gpsSimulating
@@ -163,120 +185,162 @@ export const DriverPortalView: React.FC = () => {
         </div>
       </div>
 
-      {/* QR Ticket Validation Desk with Camera Scanner Trigger */}
-      <div className="bg-[#102438] border border-[#1b3a5a] rounded-2xl p-4 shadow-xl space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-            <QrCode className="w-4 h-4 text-[#F28C28]" />
-            Ticket Validation Desk
-          </h3>
-          <span className="text-[10px] text-slate-400">Camera QR or manual lookup</span>
-        </div>
-
-        {/* Primary Camera Scanner Button */}
-        <button
-          onClick={() => setShowCameraScanner(true)}
-          className="w-full bg-gradient-to-r from-[#F28C28] to-[#e67e17] hover:from-[#e07b1a] hover:to-[#d46d0a] text-white font-extrabold py-3.5 px-4 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2.5 shadow-lg shadow-[#F28C28]/25 transition-all active:scale-[0.98]"
+      {/* Persistent Scan Result Feedback Notice if present */}
+      {recentScanResult && (
+        <div
+          className={`p-3 rounded-xl text-xs border flex items-start justify-between gap-2.5 animate-in fade-in ${
+            recentScanResult.valid
+              ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+              : 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+          }`}
         >
-          <Camera className="w-5 h-5 stroke-[2.2]" />
-          <span>Open Camera QR Scanner</span>
-        </button>
-
-        {/* Manual Input Fallback */}
-        <form onSubmit={handleVerifyToken} className="flex gap-2 pt-1">
-          <input
-            type="text"
-            value={scanToken}
-            onChange={(e) => setScanToken(e.target.value)}
-            placeholder="Paste / enter ticket token..."
-            className="flex-1 bg-[#091523] border border-[#1b344e] rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-[#3B82F6]"
-          />
-          <button
-            type="submit"
-            className="bg-[#3B82F6] hover:bg-[#2563eb] text-white px-4 py-2 rounded-xl text-xs font-bold shrink-0 transition-colors"
-          >
-            Verify
-          </button>
-        </form>
-
-        {scanResult && (
-          <div
-            className={`p-3 rounded-xl text-xs border flex items-start gap-2.5 animate-in fade-in ${
-              scanResult.valid
-                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
-                : 'bg-rose-500/15 border-rose-500/40 text-rose-300'
-            }`}
-          >
-            {scanResult.valid ? (
+          <div className="flex items-start gap-2.5">
+            {recentScanResult.valid ? (
               <CheckCircle className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
             ) : (
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
             )}
             <div>
-              <p className="font-bold">{scanResult.message}</p>
-              {scanResult.passenger && <p className="text-[11px] mt-0.5">{scanResult.passenger}</p>}
+              <p className="font-bold">{recentScanResult.message}</p>
+              {recentScanResult.passenger && (
+                <p className="text-[11px] mt-0.5 font-semibold text-white">
+                  {recentScanResult.passenger}
+                </p>
+              )}
             </div>
           </div>
-        )}
-      </div>
-
-      {/* Trip Passenger Manifest Table */}
-      <div className="bg-[#102438] border border-[#1b3a5a] rounded-2xl p-4 shadow-xl space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-            <Users className="w-4 h-4 text-[#3B82F6]" />
-            Passenger Manifest
-          </h3>
           <button
-            onClick={loadManifest}
-            className="text-[11px] text-blue-400 hover:text-blue-300 font-semibold"
+            onClick={() => setRecentScanResult(null)}
+            className="text-slate-400 hover:text-white p-0.5"
+            title="Dismiss"
           >
-            Refresh
+            ×
           </button>
         </div>
+      )}
 
-        {loading ? (
-          <div className="h-20 bg-slate-800 rounded-xl animate-shimmer" />
-        ) : manifest?.passengers?.length === 0 ? (
-          <p className="text-xs text-slate-400 p-4 text-center">No bookings on this manifest yet.</p>
-        ) : (
-          <div className="divide-y divide-[#17334e]">
-            {manifest?.passengers.map((p: any, idx: number) => (
-              <div key={idx} className="py-2.5 flex items-center justify-between text-xs">
-                <div>
-                  <span className="font-bold text-white block">{p.passengerName}</span>
-                  <span className="text-[11px] text-slate-400">
-                    Seat: <strong className="text-amber-400">{p.seatNumbers.join(', ')}</strong> • {p.pickupStop}
-                  </span>
-                </div>
+      {/* ========================================================================= */}
+      {/* TOGGLE BAR: Replace Manifest List with ScannerView                        */}
+      {/* ========================================================================= */}
+      <div className="bg-[#102438] p-1 rounded-xl flex items-center border border-[#1b3a5a] shadow-md">
+        <button
+          type="button"
+          onClick={() => setActiveTab('scanner')}
+          className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${
+            activeTab === 'scanner'
+              ? 'bg-[#F28C28] text-white shadow-md'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Camera className="w-4 h-4" />
+          <span>Camera Scanner</span>
+        </button>
 
-                <div>
-                  {p.isCheckedIn ? (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-700/50 px-2 py-0.5 rounded">
-                      <Check className="w-3 h-3" /> Boarded
-                    </span>
-                  ) : (
-                    <button
-                      onClick={() => handleQuickCheckIn(p.ticketQrToken)}
-                      className="bg-[#193a5c] hover:bg-[#234d7a] text-blue-200 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors"
-                    >
-                      Check-in
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <button
+          type="button"
+          onClick={() => setActiveTab('manifest')}
+          className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${
+            activeTab === 'manifest'
+              ? 'bg-[#1b3b5e] text-white shadow-md border border-[#2a5580]'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <List className="w-4 h-4" />
+          <span>Manifest List ({boardedCount}/{totalBooked})</span>
+        </button>
       </div>
 
-      {/* Real-time Camera QR Scanner Modal Overlay */}
-      {showCameraScanner && (
-        <ScannerView
-          onScanSuccess={handleScannerSuccess}
-          onClose={() => setShowCameraScanner(false)}
-          activePassengers={manifest?.passengers || []}
-        />
+      {/* ========================================================================= */}
+      {/* MAIN CONTENT AREA: Switch between ScannerView and Manifest List           */}
+      {/* ========================================================================= */}
+      {activeTab === 'scanner' ? (
+        <div className="bg-[#102438] border border-[#1b3a5a] rounded-2xl p-4 shadow-xl space-y-3">
+          {/* Embedded ScannerView with live camera & instant UI overlay */}
+          <ScannerView
+            isInline={true}
+            onScanSuccess={handleScannerSuccess}
+            onScanFail={handleScannerFail}
+            activePassengers={manifest?.passengers || []}
+          />
+
+          {/* Quick Manual Token Input Option */}
+          <div className="pt-2 border-t border-[#17334e] space-y-1.5">
+            <span className="text-[10px] text-slate-400 block font-semibold uppercase tracking-wider">
+              Manual Token Lookup
+            </span>
+            <form onSubmit={handleManualVerify} className="flex gap-2">
+              <input
+                type="text"
+                value={scanToken}
+                onChange={(e) => setScanToken(e.target.value)}
+                placeholder="Paste / enter booking or ticket token..."
+                className="flex-1 bg-[#091523] border border-[#1b344e] rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-[#3B82F6]"
+              />
+              <button
+                type="submit"
+                className="bg-[#3B82F6] hover:bg-[#2563eb] text-white px-3.5 py-2 rounded-xl text-xs font-bold shrink-0 transition-colors"
+              >
+                Verify
+              </button>
+            </form>
+          </div>
+        </div>
+      ) : (
+        /* Manifest List View */
+        <div className="bg-[#102438] border border-[#1b3a5a] rounded-2xl p-4 shadow-xl space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+              <Users className="w-4 h-4 text-[#3B82F6]" />
+              Passenger Manifest Roster
+            </h3>
+            <button
+              onClick={loadManifest}
+              className="text-[11px] text-blue-400 hover:text-blue-300 font-semibold"
+            >
+              Refresh
+            </button>
+          </div>
+
+          {loading ? (
+            <div className="h-28 bg-slate-800 rounded-xl animate-shimmer" />
+          ) : manifest?.passengers?.length === 0 ? (
+            <p className="text-xs text-slate-400 p-6 text-center">
+              No bookings confirmed on this shuttle manifest yet.
+            </p>
+          ) : (
+            <div className="divide-y divide-[#17334e]">
+              {manifest?.passengers.map((p: any, idx: number) => (
+                <div key={idx} className="py-3 flex items-center justify-between text-xs">
+                  <div>
+                    <span className="font-bold text-white block text-sm">{p.passengerName}</span>
+                    <span className="text-[11px] text-slate-400 block mt-0.5">
+                      Seat: <strong className="text-amber-400 font-mono">{p.seatNumbers.join(', ')}</strong> • Pickup: {p.pickupStop}
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      Ref: {p.bookingNumber}
+                    </span>
+                  </div>
+
+                  <div>
+                    {p.isCheckedIn ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-700/50 px-2.5 py-1 rounded-lg">
+                        <Check className="w-3.5 h-3.5" /> Boarded
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleQuickCheckIn(p.ticketQrToken)}
+                        className="bg-[#193a5c] hover:bg-[#234d7a] active:scale-95 text-blue-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow"
+                      >
+                        Board Passenger
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

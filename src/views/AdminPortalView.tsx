@@ -6,23 +6,42 @@ import {
   AlertCircle,
   X,
   History,
+  AlertOctagon,
+  CheckCircle2,
+  ToggleLeft,
+  ToggleRight,
+  Server,
+  Route,
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { BusRoute } from '../types/busway';
 
 export const AdminPortalView: React.FC = () => {
   const [data, setData] = useState<any>(null);
+  const [routes, setRoutes] = useState<BusRoute[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Modals
   const [showAdjustmentModal, setShowAdjustmentModal] = useState(false);
+  const [showPauseModal, setShowPauseModal] = useState(false);
+
+  // Forms
   const [adjAmount, setAdjAmount] = useState('84');
   const [adjReason, setAdjReason] = useState('');
   const [adjusting, setAdjusting] = useState(false);
+
+  const [pauseReason, setPauseReason] = useState(
+    'Monsoon waterlogging alert on EM Bypass corridor. Operations temporarily halted for passenger safety.'
+  );
+  const [pausing, setPausing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const loadData = () => {
     setLoading(true);
-    api.getAdminAnalytics()
-      .then((res) => {
-        setData(res);
+    Promise.all([api.getAdminAnalytics(), api.getRoutes()])
+      .then(([analyticsRes, routesRes]) => {
+        setData(analyticsRes);
+        setRoutes(routesRes);
         setLoading(false);
       })
       .catch((err) => {
@@ -57,6 +76,38 @@ export const AdminPortalView: React.FC = () => {
     }
   };
 
+  const handleToggleEmergencyPause = async (paused: boolean) => {
+    setPausing(true);
+    try {
+      const res = await api.toggleEmergencyPause(paused, pauseReason);
+      setShowPauseModal(false);
+      setNotice(
+        paused
+          ? 'EMERGENCY PAUSE ACTIVATED: New bookings paused across all corridors.'
+          : 'Normal platform booking operations resumed.'
+      );
+      setTimeout(() => setNotice(null), 4000);
+      loadData();
+    } catch (err: any) {
+      alert(err.message || 'Action failed');
+    } finally {
+      setPausing(false);
+    }
+  };
+
+  const handleToggleRoute = async (routeId: string, currentStatus: boolean) => {
+    try {
+      await api.toggleRoutePublish(routeId, !currentStatus);
+      setRoutes((prev) =>
+        prev.map((r) => (r.id === routeId ? { ...r, isActive: !currentStatus } : r))
+      );
+      setNotice(`Route status updated in timetable database.`);
+      setTimeout(() => setNotice(null), 3000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to update route');
+    }
+  };
+
   const handleExportCSV = () => {
     if (!data?.recentBookings) return;
     const headers = ['BookingNumber,Passenger,Origin,Destination,Date,Time,Fare,Status,Vehicle'];
@@ -73,12 +124,35 @@ export const AdminPortalView: React.FC = () => {
     document.body.removeChild(link);
   };
 
+  const isPaused = data?.isBookingsPaused;
+
   return (
     <div className="space-y-4 pb-6">
       {notice && (
         <div className="p-3 bg-emerald-500/20 border border-emerald-500/50 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
           <Shield className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{notice}</span>
+        </div>
+      )}
+
+      {/* Emergency Killswitch Status Warning Banner */}
+      {isPaused && (
+        <div className="p-4 bg-rose-500/20 border-2 border-rose-500/60 rounded-2xl text-xs text-rose-200 flex items-start justify-between gap-3 shadow-xl animate-pulse">
+          <div className="flex items-start gap-2.5">
+            <AlertOctagon className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+            <div>
+              <h4 className="font-extrabold uppercase tracking-wide text-rose-300">
+                Operational Emergency Pause Active
+              </h4>
+              <p className="mt-0.5 text-[11px] text-slate-300">{data?.emergencyPauseNotice}</p>
+            </div>
+          </div>
+          <button
+            onClick={() => handleToggleEmergencyPause(false)}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg text-xs shrink-0 shadow"
+          >
+            Resume All
+          </button>
         </div>
       )}
 
@@ -94,17 +168,29 @@ export const AdminPortalView: React.FC = () => {
 
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowPauseModal(true)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow ${
+                isPaused
+                  ? 'bg-emerald-600 text-white hover:bg-emerald-500'
+                  : 'bg-rose-600/90 hover:bg-rose-600 text-white'
+              }`}
+            >
+              <AlertOctagon className="w-3.5 h-3.5" />
+              <span>{isPaused ? 'Resume Bookings' : 'Emergency Pause'}</span>
+            </button>
+
+            <button
               onClick={() => setShowAdjustmentModal(true)}
               className="bg-[#193a5c] hover:bg-[#224d7a] text-blue-200 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors"
             >
-              Manual Ledger Adj.
+              Manual Ledger
             </button>
             <button
               onClick={handleExportCSV}
               className="bg-[#F28C28] hover:bg-[#e07b1a] text-white px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Export CSV</span>
+              <span>CSV</span>
             </button>
           </div>
         </div>
@@ -135,6 +221,55 @@ export const AdminPortalView: React.FC = () => {
               {data?.kpis?.activeBookings || 1}
             </span>
           </div>
+        </div>
+      </div>
+
+      {/* Route Publishing & Timetable Management */}
+      <div className="bg-[#102438] border border-[#1b3a5a] rounded-2xl p-4 shadow-xl space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+            <Route className="w-4 h-4 text-[#F28C28]" />
+            Route Publication & Feasibility Control
+          </h3>
+          <span className="text-[10px] text-slate-400">Regulated Timetable Approvals</span>
+        </div>
+
+        <div className="divide-y divide-[#173450] text-xs">
+          {routes.map((r) => (
+            <div key={r.id} className="py-2.5 flex items-center justify-between">
+              <div>
+                <span className="font-bold text-white block">
+                  {r.origin} → {r.destination} <span className="font-mono text-slate-400 font-normal">({r.code})</span>
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  {r.corridor} Corridor • Fare: ₹{r.baseFare.toFixed(0)} • {r.stops.length} Approved Stops
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                    r.isActive
+                      ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-700/50'
+                      : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  {r.isActive ? 'Published' : 'Draft / Off'}
+                </span>
+                <button
+                  onClick={() => handleToggleRoute(r.id, r.isActive)}
+                  className="text-slate-300 hover:text-white"
+                  title={r.isActive ? 'Unpublish route' : 'Publish route'}
+                >
+                  {r.isActive ? (
+                    <ToggleRight className="w-6 h-6 text-emerald-400" />
+                  ) : (
+                    <ToggleLeft className="w-6 h-6 text-slate-500" />
+                  )}
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -179,7 +314,7 @@ export const AdminPortalView: React.FC = () => {
         )}
       </div>
 
-      {/* Immutable Audit Log Inspector */}
+      {/* Regulatory Audit Log */}
       <div className="bg-[#102438] border border-[#1b3a5a] rounded-2xl p-4 shadow-xl space-y-3">
         <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
           <History className="w-4 h-4 text-amber-400" />
@@ -201,7 +336,59 @@ export const AdminPortalView: React.FC = () => {
         </div>
       </div>
 
-      {/* Manual Ledger Adjustment Modal */}
+      {/* Emergency Pause Confirmation Modal */}
+      {showPauseModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 animate-in fade-in">
+          <div className="bg-[#0e2034] border border-[#214368] rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-4 text-xs">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <AlertOctagon className="w-4 h-4 text-rose-500" />
+                Emergency Booking Pause
+              </h3>
+              <button onClick={() => setShowPauseModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-slate-300">
+              Activating emergency pause prevents all customers from creating new booking holds or confirming rides. Active tickets remain valid for ongoing trips.
+            </p>
+
+            <div>
+              <label className="text-slate-400 block mb-1 font-medium">Public Reason Broadcast</label>
+              <textarea
+                rows={3}
+                value={pauseReason}
+                onChange={(e) => setPauseReason(e.target.value)}
+                className="w-full bg-[#0a1827] border border-[#1b344e] rounded-xl p-2.5 text-white"
+                required
+              />
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowPauseModal(false)}
+                className="flex-1 py-2.5 text-xs font-bold text-slate-400 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleToggleEmergencyPause(!isPaused)}
+                disabled={pausing}
+                className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold text-white shadow ${
+                  isPaused ? 'bg-emerald-600' : 'bg-rose-600 hover:bg-rose-500'
+                }`}
+              >
+                {pausing ? 'Processing...' : isPaused ? 'Resume Bookings' : 'Activate Pause'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Financial Adjustment Modal */}
       {showAdjustmentModal && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 animate-in fade-in">
           <div className="bg-[#0e2034] border border-[#214368] rounded-2xl p-5 max-w-sm w-full shadow-2xl space-y-4">

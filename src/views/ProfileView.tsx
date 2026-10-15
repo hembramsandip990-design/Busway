@@ -13,8 +13,13 @@ import {
   Truck,
   Check,
   X,
+  DownloadCloud,
+  Trash2,
+  FileText,
 } from 'lucide-react';
 import { UserProfile, UserRole } from '../types/busway';
+import { LegalPoliciesModal } from '../components/LegalPoliciesModal';
+import { api } from '../lib/api';
 
 interface ProfileViewProps {
   user: UserProfile;
@@ -23,6 +28,7 @@ interface ProfileViewProps {
   onNavigateTab: (tab: 'bookings' | 'passes' | 'wallet' | 'support') => void;
   onUpdateProfile: (name: string, phone: string, email: string) => Promise<void>;
   onLogout: () => void;
+  onOpenAuth: () => void;
   onBack: () => void;
 }
 
@@ -33,6 +39,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onNavigateTab,
   onUpdateProfile,
   onLogout,
+  onOpenAuth,
 }) => {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(user.name);
@@ -40,14 +47,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [email, setEmail] = useState(user.email);
   const [saving, setSaving] = useState(false);
 
-  // Notification toggles modal
+  // Modals
   const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [showSavedLocationsModal, setShowSavedLocationsModal] = useState(false);
+  const [showLegalModal, setShowLegalModal] = useState(false);
+  const [legalDefaultTab, setLegalDefaultTab] = useState<'terms' | 'privacy' | 'refund' | 'grievance'>('terms');
+
   const [notifyWhatsApp, setNotifyWhatsApp] = useState(true);
   const [notifySMS, setNotifySMS] = useState(true);
   const [notifyLiveETA, setNotifyLiveETA] = useState(true);
-
-  // Saved locations modal
-  const [showSavedLocationsModal, setShowSavedLocationsModal] = useState(false);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,8 +64,43 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     try {
       await onUpdateProfile(name, phone, email);
       setEditing(false);
+      setActionNotice('Profile updated successfully!');
+      setTimeout(() => setActionNotice(null), 3000);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleExportData = async () => {
+    try {
+      const res = await api.exportUserData();
+      const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `BUSWAY_UserData_${user.name.replace(/\s+/g, '_')}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setActionNotice('Personal data exported successfully (DPDP compliant).');
+      setTimeout(() => setActionNotice(null), 3500);
+    } catch {
+      alert('Data export failed');
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (
+      window.confirm(
+        'Are you sure you want to delete your BUSWAY account? All your personal identification records will be permanently erased in accordance with the Digital Personal Data Protection Act, 2023.'
+      )
+    ) {
+      try {
+        await api.deleteUserAccount();
+        alert('Your account and personal data have been deleted.');
+        onLogout();
+      } catch {
+        alert('Account deletion failed');
+      }
     }
   };
 
@@ -66,11 +110,26 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     { label: 'Wallet & Transactions', icon: Wallet, action: () => onNavigateTab('wallet') },
     { label: 'Saved Locations', icon: MapPin, action: () => setShowSavedLocationsModal(true) },
     { label: 'Notification Settings', icon: Bell, action: () => setShowNotificationModal(true) },
+    {
+      label: 'Legal, Privacy & Policies',
+      icon: FileText,
+      action: () => {
+        setLegalDefaultTab('terms');
+        setShowLegalModal(true);
+      },
+    },
     { label: 'Help & Support', icon: HelpCircle, action: () => onNavigateTab('support') },
   ];
 
   return (
     <div className="space-y-4 pb-6">
+      {actionNotice && (
+        <div className="p-3 bg-emerald-500/20 border border-emerald-500/50 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
+          <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{actionNotice}</span>
+        </div>
+      )}
+
       {/* Profile Card matching screenshot #9 */}
       <div className="bg-[#102438] border border-[#1b3a5a] rounded-2xl p-4 shadow-xl flex items-center justify-between">
         <div className="flex items-center gap-3.5">
@@ -89,13 +148,21 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
         </div>
 
-        <button
-          onClick={() => setEditing(true)}
-          className="bg-[#193554] hover:bg-[#234b75] text-slate-200 hover:text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors border border-[#2b5480]"
-        >
-          <Edit2 className="w-3 h-3" />
-          <span>Edit</span>
-        </button>
+        <div className="flex flex-col gap-1.5">
+          <button
+            onClick={() => setEditing(true)}
+            className="bg-[#193554] hover:bg-[#234b75] text-slate-200 hover:text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors border border-[#2b5480]"
+          >
+            <Edit2 className="w-3 h-3" />
+            <span>Edit</span>
+          </button>
+          <button
+            onClick={onOpenAuth}
+            className="text-[10px] text-[#60a5fa] hover:underline text-center"
+          >
+            Switch Account
+          </button>
+        </div>
       </div>
 
       {/* Role Selection Segment */}
@@ -180,6 +247,34 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </button>
           );
         })}
+
+        {/* DPDP Act: Export Data Button */}
+        <button
+          onClick={handleExportData}
+          className="w-full p-4 flex items-center justify-between hover:bg-[#16304a] transition-colors text-left group"
+        >
+          <div className="flex items-center gap-3.5">
+            <DownloadCloud className="w-4 h-4 text-emerald-400" />
+            <span className="text-xs sm:text-sm font-semibold text-slate-200 group-hover:text-white">
+              Export My Data (JSON)
+            </span>
+          </div>
+          <ChevronRight className="w-4 h-4 text-slate-400" />
+        </button>
+
+        {/* DPDP Act: Delete Account Button */}
+        <button
+          onClick={handleDeleteAccount}
+          className="w-full p-4 flex items-center justify-between hover:bg-rose-950/20 transition-colors text-left group"
+        >
+          <div className="flex items-center gap-3.5">
+            <Trash2 className="w-4 h-4 text-rose-400" />
+            <span className="text-xs sm:text-sm font-semibold text-rose-300">
+              Delete Account & Personal Data
+            </span>
+          </div>
+          <ChevronRight className="w-4 h-4 text-rose-400" />
+        </button>
 
         {/* Logout item matching screenshot #9 */}
         <button
@@ -341,6 +436,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Legal & Policies Modal */}
+      <LegalPoliciesModal
+        isOpen={showLegalModal}
+        onClose={() => setShowLegalModal(false)}
+        defaultTab={legalDefaultTab}
+      />
     </div>
   );
 };

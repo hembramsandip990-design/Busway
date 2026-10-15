@@ -13,10 +13,13 @@ import {
 const BASE_URL = '/api/v1';
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('busway_auth_token') : null;
+
   try {
     const res = await fetch(`${BASE_URL}${endpoint}`, {
       headers: {
         'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...options?.headers,
       },
       ...options,
@@ -35,7 +38,37 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  // User
+  // Authentication & Account
+  login: (identifier: string, pass: string) =>
+    request<{ success: boolean; user: UserProfile; token: string }>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ identifier, password: pass }),
+    }),
+  signup: (data: { name: string; email: string; phone: string; password?: string }) =>
+    request<{ success: boolean; user: UserProfile; token: string }>('/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  logout: () =>
+    request<{ success: boolean }>('/auth/logout', { method: 'POST' }),
+  forgotPassword: (identifier: string) =>
+    request<{ success: boolean; message: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ identifier }),
+    }),
+  resetPassword: (identifier: string, otp: string, newPass: string) =>
+    request<{ success: boolean; message: string }>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ identifier, otp, newPassword: newPass }),
+    }),
+  exportUserData: () =>
+    request<{ success: boolean; data: any }>('/auth/export-data'),
+  deleteUserAccount: () =>
+    request<{ success: boolean; message: string }>('/auth/delete-account', {
+      method: 'POST',
+    }),
+
+  // User Profile
   getProfile: () => request<UserProfile>('/user/profile'),
   updateProfile: (data: { name: string; phone: string; email: string }) =>
     request<{ success: boolean; user: UserProfile }>('/user/profile', {
@@ -117,6 +150,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ tripId, lat, lng, heading }),
     }),
+  getTripLiveTracking: (tripId: string) =>
+    request<{
+      trip: TripInstance;
+      location: any;
+      isStale: boolean;
+    }>(`/trips/${tripId}/live-tracking`),
 
   // Operator
   getOperatorFleet: () => request<{ operator: any; vehicles: Vehicle[]; drivers: any[] }>('/operator/fleet'),
@@ -126,18 +165,30 @@ export const api = {
       body: JSON.stringify({ registrationNumber, model, totalCapacity }),
     }),
 
-  // Admin
+  // Admin & Operations Control
   getAdminAnalytics: () =>
     request<{
       kpis: any;
       recentBookings: Booking[];
       vehicles: Vehicle[];
       auditLogs: any[];
+      isBookingsPaused: boolean;
+      emergencyPauseNotice?: string;
     }>('/admin/analytics'),
   adminManualAdjustment: (amount: number, reason: string) =>
     request<{ success: boolean; balance: number; auditLog: any }>('/admin/manual-adjustment', {
       method: 'POST',
       body: JSON.stringify({ amount, reason }),
+    }),
+  toggleEmergencyPause: (paused: boolean, reason: string) =>
+    request<{ success: boolean; isBookingsPaused: boolean; notice: string }>('/admin/emergency-pause', {
+      method: 'POST',
+      body: JSON.stringify({ paused, reason }),
+    }),
+  toggleRoutePublish: (routeId: string, publish: boolean) =>
+    request<{ success: boolean; route: BusRoute }>('/admin/routes/publish', {
+      method: 'POST',
+      body: JSON.stringify({ routeId, publish }),
     }),
 
   // Support

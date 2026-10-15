@@ -16,6 +16,10 @@ import { DriverPortalView } from './views/DriverPortalView';
 import { OperatorPortalView } from './views/OperatorPortalView';
 import { AdminPortalView } from './views/AdminPortalView';
 
+import { AuthModal } from './components/AuthModal';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { PWAInstallBanner } from './components/PWAInstallBanner';
+
 import {
   UserProfile,
   UserRole,
@@ -51,7 +55,6 @@ type AppView =
 
 export default function App() {
   const [currentView, setCurrentView] = useState<AppView>('home');
-  const [previousView, setPreviousView] = useState<AppView>('home');
   const [currentRole, setCurrentRole] = useState<UserRole>('passenger');
 
   // App Data States
@@ -60,6 +63,11 @@ export default function App() {
   const [wallet, setWallet] = useState<WalletAccount>(INITIAL_WALLET);
   const [routes, setRoutes] = useState<BusRoute[]>(INITIAL_ROUTES);
   const [passes, setPasses] = useState<CommuterPass[]>(INITIAL_PASSES);
+  const [isEmergencyPaused, setIsEmergencyPaused] = useState(false);
+  const [emergencyNotice, setEmergencyNotice] = useState<string | undefined>();
+
+  // Modals
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
   // Active selections
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(INITIAL_BOOKINGS[0]);
@@ -78,10 +86,18 @@ export default function App() {
     api.getWallet().then(setWallet).catch(() => {});
     api.getRoutes().then(setRoutes).catch(() => {});
     api.getPasses().then(setPasses).catch(() => {});
+
+    // Check emergency status
+    fetch('/api/v1/health')
+      .then((r) => r.json())
+      .then((h) => {
+        setIsEmergencyPaused(!!h.isBookingsPaused);
+        setEmergencyNotice(h.emergencyNotice);
+      })
+      .catch(() => {});
   }, []);
 
   const navigateTo = (view: AppView) => {
-    setPreviousView(currentView);
     setCurrentView(view);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -134,7 +150,6 @@ export default function App() {
   const handleBookingSuccess = (booking: Booking) => {
     setBookings((prev) => [booking, ...prev]);
     setSelectedBooking(booking);
-    // Refresh wallet
     api.getWallet().then(setWallet).catch(() => {
       setWallet((prev) => ({
         ...prev,
@@ -183,7 +198,12 @@ export default function App() {
     setUser(res.user);
   };
 
-  // Determine page title & back button for header
+  const handleAuthSuccess = (authUser: any) => {
+    setUser(authUser);
+    setShowAuthModal(false);
+  };
+
+  // Page title mapping
   let pageTitle = '';
   let showBack = false;
 
@@ -259,7 +279,10 @@ export default function App() {
   else if (currentView === 'profile' || currentView === 'wallet') activeTab = 'profile';
 
   return (
-    <div className="min-h-screen bg-[#08111e] text-slate-100 flex flex-col font-sans selection:bg-[#F28C28] selection:text-white">
+    <div className="min-h-screen bg-[#08111e] text-slate-100 flex flex-col font-sans selection:bg-[#F28C28] selection:text-white relative">
+      {/* Network Connectivity Offline Warning Toast */}
+      <OfflineIndicator />
+
       {/* Top App Bar */}
       <Header
         title={pageTitle}
@@ -273,6 +296,23 @@ export default function App() {
 
       {/* Main Container Viewport (Mobile-first centered responsive canvas) */}
       <main className="flex-1 max-w-xl w-full mx-auto px-4 pt-4 pb-24">
+        {/* PWA In-App Install Prompt Banner on Home view */}
+        {currentView === 'home' && (
+          <div className="mb-4">
+            <PWAInstallBanner />
+          </div>
+        )}
+
+        {/* Emergency Pause Public Notice */}
+        {isEmergencyPaused && (
+          <div className="mb-4 p-3.5 bg-rose-500/20 border border-rose-500/50 rounded-2xl text-xs text-rose-200">
+            <strong className="block text-rose-300 font-bold uppercase tracking-wider mb-0.5">
+              Corridor Transit Advisory
+            </strong>
+            <span>{emergencyNotice || 'Bookings temporarily suspended due to corridor maintenance.'}</span>
+          </div>
+        )}
+
         {currentView === 'home' && (
           <HomeView
             onBookNewRide={() => navigateTo('book-ride')}
@@ -383,9 +423,9 @@ export default function App() {
             }}
             onUpdateProfile={handleUpdateProfile}
             onLogout={() => {
-              alert('Logged out securely. Session destroyed.');
-              navigateTo('home');
+              setShowAuthModal(true);
             }}
+            onOpenAuth={() => setShowAuthModal(true)}
             onBack={handleBack}
           />
         )}
@@ -411,10 +451,17 @@ export default function App() {
         )}
       </main>
 
-      {/* Fixed Bottom Navigation (hidden only in full admin console on wide screens if desired, but always accessible) */}
+      {/* Fixed Bottom Navigation */}
       <BottomNav
         activeTab={activeTab}
         onTabChange={handleTabChange}
+      />
+
+      {/* Auth Modal (Login, Signup, Recovery) */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onAuthSuccess={handleAuthSuccess}
       />
     </div>
   );

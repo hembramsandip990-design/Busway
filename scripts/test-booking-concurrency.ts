@@ -14,17 +14,18 @@ async function runConcurrencySimulation() {
   const BASE_URL = 'http://localhost:3000/api/v1';
 
   try {
-    // 1. Search for available trips
-    const searchRes = await fetch(`${BASE_URL}/trips/search?origin=Bally&destination=Sector%20V`);
+    // 1. Search for available trips with remaining capacity
+    const searchRes = await fetch(`${BASE_URL}/trips/search`);
     const trips = await searchRes.json();
-    if (!trips.length) {
-      console.error('No trips found for concurrency test');
+    const availableTrips = trips.filter((t: any) => t.availableCapacity > 0);
+    if (!availableTrips.length) {
+      console.error('No trips with available capacity found for concurrency test');
       return;
     }
 
-    const testTrip = trips[0];
+    const testTrip = availableTrips[0];
     const initialSeats = testTrip.availableCapacity;
-    console.log(`[PASS] Found trip ${testTrip.id} with ${initialSeats} available seats.`);
+    console.log(`[PASS] Found trip ${testTrip.id} (${testTrip.origin} -> ${testTrip.destination}) with ${initialSeats} available seats.`);
 
     // 2. Concurrency Test: 10 parallel hold attempts for 1 seat each
     console.log(`[TEST] Firing 10 simultaneous hold requests...`);
@@ -58,6 +59,13 @@ async function runConcurrencySimulation() {
       const holdToken = successfulHolds[0].data.holdToken;
       const idempotencyKey = `IDEMP-TEST-${Date.now()}`;
 
+      // Top up wallet to ensure sufficient balance for test
+      await fetch(`${BASE_URL}/wallet/topup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: 500 }),
+      });
+
       // Confirm Booking
       const confirmRes = await fetch(`${BASE_URL}/bookings`, {
         method: 'POST',
@@ -70,6 +78,10 @@ async function runConcurrencySimulation() {
       });
 
       const confirmedBooking = await confirmRes.json();
+      if (!confirmedBooking.bookingNumber) {
+        console.error(`[FAIL] Booking confirmation failed:`, confirmedBooking);
+        return;
+      }
       console.log(`[PASS] Booking confirmed: ${confirmedBooking.bookingNumber}, QR Token: ${confirmedBooking.ticketQrToken}`);
 
       // First Scan: Should Succeed
